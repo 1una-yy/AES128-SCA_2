@@ -5,7 +5,7 @@
 
 ---
 
-## 一、啟動方式（陳昱廷負責啟動後端）
+## 一、啟動方式
 
 ```bash
 cd api/
@@ -22,12 +22,12 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 使用者（瀏覽器）
     ↓ 上傳 traces / plaintexts
-姚怡君的 Django 後端
+Django 後端
     ↓ 呼叫攻擊 API（本文件）
     ↓ [可選] 呼叫 AI 前處理 API（陳泓諺的模組）
-陳昱廷的攻擊 API（本文件）
+攻擊 API（本文件）
     ↓ 回傳金鑰 + 圖表
-姚怡君的 Django 後端
+Django 後端
     ↓ 顯示結果
 使用者（瀏覽器）
 ```
@@ -51,7 +51,7 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ### `GET /algorithms` — 取得演算法清單
 
 前端用這支 API 動態產生演算法下拉選單，**不需要寫死演算法名稱**。
-陳昱廷之後加新演算法，前端會自動出現。
+攻擊之後加新演算法，前端會自動出現。
 
 **回傳範例：**
 ```json
@@ -117,14 +117,14 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 ### AI 模組的職責
 
-AI 模組（陳泓諺）負責對 traces 進行：
+AI 模組負責對 traces 進行：
 1. 去噪（Denoising）
 2. 時序對齊（Alignment）
 3. 洩漏點定位（CNN/MLP 找出最有用的採樣區段）
 
 ### AI 模組輸出格式
 
-> 陳泓諺，請按照以下格式輸出，攻擊模組才能直接使用。
+> 請按照以下格式輸出，攻擊模組才能直接使用。
 
 ```python
 import numpy as np
@@ -137,7 +137,7 @@ preprocessed_traces = your_model.process(raw_traces)  # shape: (N, trace_length)
 np.save("preprocessed_traces.npy", preprocessed_traces)
 ```
 
-### Django 的整合流程（姚怡君）
+### Django 的整合流程
 
 ```python
 # views.py 範例
