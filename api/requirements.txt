@@ -3,3 +3,5 @@ uvicorn[standard]
 numpy
 matplotlib
 python-multipart
+scipy
+h5py
