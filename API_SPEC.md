@@ -23,8 +23,8 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 使用者（瀏覽器）
     ↓ 上傳 traces / plaintexts
 Django 後端
+    ↓ 呼叫 AI 前處理 API
     ↓ 呼叫攻擊 API（本文件）
-    ↓ [可選] 呼叫 AI 前處理 API（陳泓諺的模組）
 攻擊 API（本文件）
     ↓ 回傳金鑰 + 圖表
 Django 後端
