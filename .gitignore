@@ -1,0 +1,15 @@
+# traces 資料（通常很大，不推上去）
+traces/
+
+# Python 暫存
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# 系統檔
+.DS_Store
+Thumbs.db
