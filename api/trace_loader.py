@@ -39,7 +39,7 @@ def load_traces(file_bytes: bytes, filename: str) -> np.ndarray:
 
 def load_plaintexts(file_bytes: bytes, filename: str) -> np.ndarray:
     """
-    載入明文檔案，支援 .npy / .csv。
+    載入明文檔案，支援 .npy / .csv / .h5(.hdf5)。
     回傳 np.ndarray，shape (num_traces, 16)，dtype uint8。
     """
     ext = filename.rsplit(".", 1)[-1].lower()
@@ -49,15 +49,35 @@ def load_plaintexts(file_bytes: bytes, filename: str) -> np.ndarray:
     elif ext == "csv":
         arr = np.loadtxt(io.StringIO(file_bytes.decode("utf-8")),
                          delimiter=",", dtype=np.uint8)
+    elif ext in ("h5", "hdf5"):
+        arr = _load_plaintexts_h5(file_bytes)
     else:
         raise HTTPException(
             status_code=400,
-            detail=f"明文檔案不支援 .{ext}，請上傳 .npy 或 .csv"
+            detail=f"明文檔案不支援 .{ext}，請上傳 .npy / .csv / .h5"
         )
 
     if arr.ndim == 1:
         arr = arr.reshape(1, -1)
     return arr.astype(np.uint8)
+
+
+def _load_plaintexts_h5(data: bytes) -> np.ndarray:
+    try:
+        import h5py, tempfile, os
+        with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as f:
+            f.write(data)
+            tmp_path = f.name
+        try:
+            with h5py.File(tmp_path, "r") as hf:
+                arr = _find_plaintexts_in_h5(hf)
+        finally:
+            os.unlink(tmp_path)
+        return arr
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f".h5 明文解析失敗：{e}")
 
 
 # ── 各格式解析實作 ──────────────────────────────────────────
@@ -88,7 +108,8 @@ def _load_csv(data: bytes) -> np.ndarray:
 def _load_h5(data: bytes) -> np.ndarray:
     """
     HDF5 格式，自動尋找 traces dataset。
-    常見 key：'traces'、'power_traces'、'data'
+    支援一般格式（key: traces/power_traces/data/X）與
+    ASCAD 巢狀格式（Attack_traces/traces、Profiling_traces/traces）。
     """
     try:
         import h5py, tempfile, os
@@ -97,16 +118,7 @@ def _load_h5(data: bytes) -> np.ndarray:
             tmp_path = f.name
         try:
             with h5py.File(tmp_path, "r") as hf:
-                # 自動尋找 traces key
-                candidates = ["traces", "power_traces", "data", "X"]
-                key = next((k for k in candidates if k in hf), None)
-                if key is None:
-                    available = list(hf.keys())
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f".h5 找不到 traces dataset，現有 keys：{available}"
-                    )
-                arr = np.array(hf[key], dtype=np.float32)
+                arr = _find_traces_in_h5(hf)
         finally:
             os.unlink(tmp_path)
 
@@ -117,6 +129,48 @@ def _load_h5(data: bytes) -> np.ndarray:
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f".h5 解析失敗：{e}")
+
+
+def _find_traces_in_h5(hf) -> np.ndarray:
+    """在 HDF5 檔案中尋找 traces，支援一般與 ASCAD 巢狀結構。"""
+    import h5py
+
+    # ASCAD 格式：優先用 Attack_traces，其次 Profiling_traces
+    for group in ("Attack_traces", "Profiling_traces"):
+        if group in hf and "traces" in hf[group]:
+            return np.array(hf[group]["traces"], dtype=np.float32)
+
+    # 一般格式：根目錄找常見 key
+    for key in ("traces", "power_traces", "data", "X"):
+        if key in hf:
+            return np.array(hf[key], dtype=np.float32)
+
+    raise HTTPException(
+        status_code=400,
+        detail=f".h5 找不到 traces dataset，現有 keys：{list(hf.keys())}"
+    )
+
+
+def _find_plaintexts_in_h5(hf) -> np.ndarray:
+    """在 HDF5 檔案中尋找明文，支援 ASCAD metadata 巢狀結構。"""
+    # ASCAD 格式：Attack_traces/metadata/plaintext 或 Profiling_traces/metadata/plaintext
+    for group in ("Attack_traces", "Profiling_traces"):
+        if group in hf:
+            meta = hf[group].get("metadata")
+            if meta is not None:
+                for key in ("plaintext", "plaintexts", "text"):
+                    if key in meta:
+                        return np.array(meta[key], dtype=np.uint8)
+
+    # 一般格式：根目錄
+    for key in ("plaintexts", "plaintext", "text"):
+        if key in hf:
+            return np.array(hf[key], dtype=np.uint8)
+
+    raise HTTPException(
+        status_code=400,
+        detail=f".h5 找不到明文 dataset，現有 keys：{list(hf.keys())}"
+    )
 
 
 def _load_trs(data: bytes) -> np.ndarray:

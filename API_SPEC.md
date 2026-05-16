@@ -122,6 +122,41 @@ AI 模組負責對 traces 進行：
 2. 時序對齊（Alignment）
 3. 洩漏點定位（CNN/MLP 找出最有用的採樣區段）
 
+### 資料集：ASCAD
+
+AI 模組使用 **ASCAD（ANSSI SCA Database）** 資料集，HDF5 格式，結構如下：
+
+```
+ASCAD.h5
+├── Profiling_traces/         ← 訓練模型用（key 已知、量多）
+│   ├── traces                  shape: (N, 700), float32
+│   └── metadata/
+│       ├── plaintext           shape: (N, 16), uint8
+│       └── key                 shape: (N, 16), uint8
+└── Attack_traces/            ← 攻擊用（要猜金鑰）
+    ├── traces                  shape: (N, 700), float32
+    └── metadata/
+        ├── plaintext           shape: (N, 16), uint8
+        └── key                 shape: (N, 16), uint8（驗證用）
+```
+
+**從 ASCAD 載入資料：**
+
+```python
+import h5py
+import numpy as np
+
+with h5py.File("ASCAD.h5", "r") as hf:
+    # 攻擊用 traces 與明文
+    attack_traces     = np.array(hf["Attack_traces"]["traces"])                    # (N, 700)
+    attack_plaintexts = np.array(hf["Attack_traces"]["metadata"]["plaintext"])     # (N, 16)
+
+    # 訓練模型用（profiling）
+    profiling_traces     = np.array(hf["Profiling_traces"]["traces"])
+    profiling_plaintexts = np.array(hf["Profiling_traces"]["metadata"]["plaintext"])
+    profiling_keys       = np.array(hf["Profiling_traces"]["metadata"]["key"])
+```
+
 ### AI 模組輸出格式
 
 > 請按照以下格式輸出，攻擊模組才能直接使用。
@@ -129,12 +164,20 @@ AI 模組負責對 traces 進行：
 ```python
 import numpy as np
 
-# preprocessed_traces：shape 與原始 traces 相同，或是裁切過的子區段
+# preprocessed_traces：shape 與原始 attack traces 相同，或裁切過的子區段
 # dtype: float32 或 float64
-preprocessed_traces = your_model.process(raw_traces)  # shape: (N, trace_length)
+preprocessed_traces = your_model.process(attack_traces)  # shape: (N, trace_length)
 
 # 儲存為 .npy 供上傳
 np.save("preprocessed_traces.npy", preprocessed_traces)
+np.save("plaintexts.npy", attack_plaintexts)  # 明文也一起存，前端上傳用
+```
+
+**攻擊 API 也可直接接受 ASCAD `.h5` 檔（不需先轉 .npy）：**
+
+```
+traces_file     → 自動讀 Attack_traces/traces
+plaintexts_file → 自動讀 Attack_traces/metadata/plaintext
 ```
 
 ### Django 的整合流程
