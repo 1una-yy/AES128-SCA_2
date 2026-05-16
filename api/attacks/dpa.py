@@ -1,0 +1,148 @@
+"""
+attacks/dpa.py
+DPA 攻擊模組，支援兩種統計方式：
+  - dom：Difference of Means（原始 DPA）
+  - pcc：Pearson Correlation Coefficient
+兩種方法都用 SBox 輸出的 LSB 作為功耗模型。
+"""
+
+import numpy as np
+import matplotlib.pyplot as plt
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from attack_base import BaseAttack, AttackInput, AttackResult, registry
+
+AES_Sbox = np.array([
+    0x63,0x7C,0x77,0x7B,0xF2,0x6B,0x6F,0xC5,0x30,0x01,0x67,0x2B,0xFE,0xD7,0xAB,0x76,
+    0xCA,0x82,0xC9,0x7D,0xFA,0x59,0x47,0xF0,0xAD,0xD4,0xA2,0xAF,0x9C,0xA4,0x72,0xC0,
+    0xB7,0xFD,0x93,0x26,0x36,0x3F,0xF7,0xCC,0x34,0xA5,0xE5,0xF1,0x71,0xD8,0x31,0x15,
+    0x04,0xC7,0x23,0xC3,0x18,0x96,0x05,0x9A,0x07,0x12,0x80,0xE2,0xEB,0x27,0xB2,0x75,
+    0x09,0x83,0x2C,0x1A,0x1B,0x6E,0x5A,0xA0,0x52,0x3B,0xD6,0xB3,0x29,0xE3,0x2F,0x84,
+    0x53,0xD1,0x00,0xED,0x20,0xFC,0xB1,0x5B,0x6A,0xCB,0xBE,0x39,0x4A,0x4C,0x58,0xCF,
+    0xD0,0xEF,0xAA,0xFB,0x43,0x4D,0x33,0x85,0x45,0xF9,0x02,0x7F,0x50,0x3C,0x9F,0xA8,
+    0x51,0xA3,0x40,0x8F,0x92,0x9D,0x38,0xF5,0xBC,0xB6,0xDA,0x21,0x10,0xFF,0xF3,0xD2,
+    0xCD,0x0C,0x13,0xEC,0x5F,0x97,0x44,0x17,0xC4,0xA7,0x7E,0x3D,0x64,0x5D,0x19,0x73,
+    0x60,0x81,0x4F,0xDC,0x22,0x2A,0x90,0x88,0x46,0xEE,0xB8,0x14,0xDE,0x5E,0x0B,0xDB,
+    0xE0,0x32,0x3A,0x0A,0x49,0x06,0x24,0x5C,0xC2,0xD3,0xAC,0x62,0x91,0x95,0xE4,0x79,
+    0xE7,0xC8,0x37,0x6D,0x8D,0xD5,0x4E,0xA9,0x6C,0x56,0xF4,0xEA,0x65,0x7A,0xAE,0x08,
+    0xBA,0x78,0x25,0x2E,0x1C,0xA6,0xB4,0xC6,0xE8,0xDD,0x74,0x1F,0x4B,0xBD,0x8B,0x8A,
+    0x70,0x3E,0xB5,0x66,0x48,0x03,0xF6,0x0E,0x61,0x35,0x57,0xB9,0x86,0xC1,0x1D,0x9E,
+    0xE1,0xF8,0x98,0x11,0x69,0xD9,0x8E,0x94,0x9B,0x1E,0x87,0xE9,0xCE,0x55,0x28,0xDF,
+    0x8C,0xA1,0x89,0x0D,0xBF,0xE6,0x42,0x68,0x41,0x99,0x2D,0x0F,0xB0,0x54,0xBB,0x16
+])
+
+K_RANGE = np.arange(256)
+
+
+class DPAAttack(BaseAttack):
+    """
+    DPA 攻擊，支援 dom / pcc 兩種 variant。
+    功耗模型統一使用 SBox 輸出的 LSB。
+    """
+
+    def __init__(self, variant: str):
+        assert variant in ("dom", "pcc")
+        self.variant     = variant
+        self.name        = f"dpa_{variant}"
+        self.display_name = (
+            "DPA — Difference of Means (LSB)"      if variant == "dom"
+            else "DPA — Pearson Correlation (LSB)"
+        )
+        self.description = (
+            "依 SBox 輸出 LSB 將 traces 分成兩組，計算均值差找出金鑰。"   if variant == "dom"
+            else "依 SBox 輸出 LSB 分組，使用 Pearson 相關係數找出金鑰。"
+        )
+
+    def run(self, data: AttackInput) -> AttackResult:
+        self.validate(data)
+        t = (data.preprocessed_traces if data.preprocessed_traces is not None
+             else data.traces).astype(np.float64)
+        p = data.plaintexts.astype(np.uint8)
+        num_traces, trace_length = t.shape
+
+        r         = np.zeros((16, 256, trace_length))
+        Guess_Key = np.zeros(16, dtype=int)
+
+        if self.variant == "dom":
+            r, Guess_Key = self._run_dom(t, p, num_traces, trace_length)
+        else:
+            r, Guess_Key = self._run_pcc(t, p, num_traces, trace_length)
+
+        ylabel = "DoM" if self.variant == "dom" else "Correlation"
+        ylim   = (-0.01, 0.01) if self.variant == "dom" else (-1, 1)
+
+        fig, axes = plt.subplots(4, 4, figsize=(24, 24))
+        for b in range(16):
+            ax = axes[b // 4, b % 4]
+            ax.set_title(f"Byte {b}")
+            ax.set_ylim(*ylim)
+            ax.set_xlabel("Samples")
+            ax.set_ylabel(ylabel)
+            ax.plot(r[b].T, alpha=0.3, linewidth=0.5)
+        plt.tight_layout()
+
+        return AttackResult(
+            algorithm    = self.name,
+            key_hex      = bytes(Guess_Key.tolist()).hex(),
+            key_bytes    = Guess_Key.tolist(),
+            num_traces   = num_traces,
+            trace_length = trace_length,
+            plot_base64  = self.plot_to_base64(fig),
+        )
+
+    def _run_dom(self, t, p, num_traces, trace_length):
+        sum_0 = np.zeros((16, 256, trace_length))
+        sum_1 = np.zeros((16, 256, trace_length))
+        n_0   = np.zeros((16, 256))
+        n_1   = np.zeros((16, 256))
+
+        for i in range(num_traces):
+            for b in range(16):
+                lsb    = 0x01 & AES_Sbox[p[i, b] ^ K_RANGE]
+                sum_0[b, lsb == 0] += t[i]
+                sum_1[b, lsb == 1] += t[i]
+                n_0[b, lsb == 0]   += 1
+                n_1[b, lsb == 1]   += 1
+
+        r         = np.zeros((16, 256, trace_length))
+        Guess_Key = np.zeros(16, dtype=int)
+        for b in range(16):
+            mean_0  = sum_0[b] / (n_0[b][:, None] + 1e-40)
+            mean_1  = sum_1[b] / (n_1[b][:, None] + 1e-40)
+            r[b]    = mean_1 - mean_0
+            Guess_Key[b] = int(np.argmax(np.max(np.abs(r[b]), axis=1)))
+        return r, Guess_Key
+
+    def _run_pcc(self, t, p, num_traces, trace_length):
+        h_sum   = np.zeros((16, 256))
+        h2_sum  = np.zeros((16, 256))
+        t_sum   = np.zeros(trace_length)
+        t2_sum  = np.zeros(trace_length)
+        h_t_sum = np.zeros((16, 256, trace_length))
+
+        for i in range(num_traces):
+            n       = i + 1
+            t_sum  += t[i]
+            t2_sum += t[i] ** 2
+            std_t   = np.sqrt(t2_sum - (t_sum ** 2) / n) + 1e-40
+            for b in range(16):
+                h           = (0x01 & AES_Sbox[p[i, b] ^ K_RANGE]).astype(np.float64)
+                h_sum[b]   += h
+                h2_sum[b]  += h ** 2
+                h_t_sum[b] += np.outer(h, t[i])
+                std_h       = np.sqrt(h2_sum[b] - (h_sum[b] ** 2) / n) + 1e-40
+                h_t_sum[b]  # 累積中，最後統一算
+
+        r         = np.zeros((16, 256, trace_length))
+        Guess_Key = np.zeros(16, dtype=int)
+        n         = num_traces
+        t_std     = np.sqrt(t2_sum - (t_sum ** 2) / n) + 1e-40
+        for b in range(16):
+            h_std    = np.sqrt(h2_sum[b] - (h_sum[b] ** 2) / n) + 1e-40
+            r[b]     = (h_t_sum[b] - np.outer(h_sum[b], t_sum) / n) / np.outer(h_std, t_std)
+            Guess_Key[b] = int(np.argmax(np.max(np.abs(r[b]), axis=1)))
+        return r, Guess_Key
+
+
+registry.register(DPAAttack("dom"))
+registry.register(DPAAttack("pcc"))
