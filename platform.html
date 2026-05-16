@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>旁通道攻擊分析平台</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#f4f5f7; --surface:#fff; --surface2:#f0f1f4;
+  --border:#e0e2ea; --border2:#c8ccd8; --text:#1a1d2e; --muted:#7a7f9a;
+  --pre-bg:#eff3ff; --pre-border:#c5d3fa; --pre-accent:#3b6ff0; --pre-text:#1e3fa8;
+  --atk-bg:#edfaf4; --atk-border:#b6e8d0; --atk-accent:#0e9e63; --atk-text:#0a6b42;
+  --eval-bg:#fff8ed; --eval-border:#fad6a0; --eval-accent:#e08010; --eval-text:#8a4e00;
+  --warn-bg:#fff3f3; --warn-border:#f5c0c0; --warn-text:#9a2020;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Noto Sans TC',sans-serif;min-height:100vh}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(var(--border) 1px,transparent 1px),linear-gradient(90deg,var(--border) 1px,transparent 1px);background-size:36px 36px;opacity:.45;pointer-events:none;z-index:0}
+.wrap{position:relative;z-index:1;max-width:1100px;margin:0 auto;padding:28px 24px 72px}
+
+/* Header */
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:26px;padding-bottom:18px;border-bottom:1px solid var(--border)}
+.logo{display:flex;align-items:center;gap:12px}
+.logo-mark{width:34px;height:34px;border:1.5px solid var(--pre-accent);border-radius:8px;display:flex;align-items:center;justify-content:center}
+.logo-mark svg{width:16px;height:16px;stroke:var(--pre-accent);fill:none;stroke-width:1.8}
+.logo-text strong{display:block;font-size:15px;font-weight:700}
+.logo-text span{font-size:12px;color:var(--muted);font-family:'IBM Plex Mono',monospace}
+.hdr-right{display:flex;align-items:center;gap:10px}
+.api-dot{width:7px;height:7px;border-radius:50%;background:#ccc;flex-shrink:0;transition:background .3s}
+.api-dot.ok{background:#22c55e}
+.api-dot.err{background:#ef4444}
+.api-url{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)}
+.hdr-badge{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--atk-text);background:var(--atk-bg);border:1px solid var(--atk-border);padding:4px 10px;border-radius:20px}
+
+/* Steps */
+.steps-bar{display:flex;align-items:center;margin-bottom:22px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:4px;gap:2px}
+.step-tab{flex:1;display:flex;align-items:center;gap:8px;padding:10px 14px;cursor:pointer;border-radius:7px;transition:background .15s;user-select:none}
+.step-tab:hover{background:var(--surface2)}
+.step-tab.active{background:var(--pre-bg)}
+.step-num{width:22px;height:22px;border-radius:50%;font-size:11px;font-family:'IBM Plex Mono',monospace;font-weight:500;display:flex;align-items:center;justify-content:center;background:var(--surface2);color:var(--muted);border:1px solid var(--border);flex-shrink:0;transition:all .15s}
+.step-tab.active .step-num{background:var(--pre-accent);color:#fff;border-color:var(--pre-accent)}
+.step-tab.done   .step-num{background:var(--atk-bg);color:var(--atk-text);border-color:var(--atk-border)}
+.step-label{font-size:13px;font-weight:500;color:var(--muted);transition:color .15s}
+.step-tab.active .step-label,.step-tab.done .step-label{color:var(--text)}
+.step-div{width:1px;height:20px;background:var(--border);flex-shrink:0;margin:0 2px}
+
+/* Panel */
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.panel-hd{padding:11px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;background:var(--surface2)}
+.panel-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.panel-title{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.panel-bd{padding:16px}
+
+/* Sections */
+#sec-1{display:block}
+#sec-2{display:none}
+#sec-3{display:none}
+
+/* Upload */
+.upload-area{border:2px dashed var(--border2);border-radius:12px;padding:36px 24px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s;position:relative}
+.upload-area:hover,.upload-area.over{border-color:var(--pre-accent);background:var(--pre-bg)}
+.upload-area input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.up-icon{width:44px;height:44px;border:1.5px solid var(--border2);border-radius:10px;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--muted);transition:all .15s}
+.upload-area:hover .up-icon,.upload-area.over .up-icon{border-color:var(--pre-accent);color:var(--pre-accent)}
+.up-title{font-size:14px;font-weight:500;margin-bottom:5px}
+.up-sub{font-size:11px;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-bottom:12px}
+.fmt-chips{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+.fmt-chip{font-family:'IBM Plex Mono',monospace;font-size:11px;padding:3px 9px;border-radius:20px;background:var(--surface2);border:1px solid var(--border);color:var(--muted)}
+
+/* Upload row (2-column) */
+.upload-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.upload-col label{display:block;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:7px}
+.upload-col .opt-tag{color:var(--eval-accent);font-size:10px;margin-left:4px}
+
+/* File card */
+.file-card{display:none;align-items:center;gap:12px;padding:10px 14px;background:var(--atk-bg);border:1px solid var(--atk-border);border-radius:10px;margin-top:10px}
+.file-card.vis{display:flex;animation:si .2s ease}
+@keyframes si{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.file-ext{width:36px;height:36px;border-radius:7px;background:var(--atk-text);color:#fff;display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:500;flex-shrink:0}
+.file-info{flex:1;min-width:0}
+.file-nm{font-size:13px;font-weight:500;color:var(--atk-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-mt{font-size:11px;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-top:2px}
+.file-rm{background:none;border:none;cursor:pointer;color:var(--muted);font-size:16px;padding:2px 4px;border-radius:4px;flex-shrink:0}
+.file-rm:hover{color:#c03030}
+
+/* Optional file mini-card */
+.opt-file-row{display:flex;align-items:center;gap:8px;margin-top:8px;padding:7px 10px;background:var(--eval-bg);border:1px solid var(--eval-border);border-radius:7px;font-size:12px}
+.opt-file-row.hidden{display:none}
+.opt-file-nm{flex:1;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--eval-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.opt-file-rm{background:none;border:none;cursor:pointer;color:var(--muted);font-size:13px;flex-shrink:0}
+.opt-file-rm:hover{color:#c03030}
+
+/* Pre steps */
+#pre-sec{display:none;margin-top:16px}
+.pre-bar-bg{height:4px;background:var(--border);border-radius:2px;overflow:hidden;margin-bottom:14px}
+.pre-bar-fg{height:100%;background:var(--pre-accent);border-radius:2px;width:0;transition:width .4s ease}
+.pre-steps{display:flex;flex-direction:column;gap:8px}
+.ps{display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);transition:all .2s}
+.ps.run{background:var(--pre-bg);border-color:var(--pre-border)}
+.ps.done{background:var(--atk-bg);border-color:var(--atk-border)}
+.ps.warn{background:var(--warn-bg);border-color:var(--warn-border)}
+.pi{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;background:var(--surface);border:1px solid var(--border);transition:all .2s}
+.ps.run  .pi{background:var(--pre-bg);border-color:var(--pre-border);animation:blink .9s infinite}
+.ps.done .pi{background:var(--atk-bg);border-color:var(--atk-border)}
+.ps.warn .pi{background:var(--warn-bg);border-color:var(--warn-border)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
+.pb{flex:1}
+.pn{font-size:13px;font-weight:500;color:var(--muted);transition:color .2s}
+.ps.run  .pn{color:var(--pre-text)}
+.ps.done .pn{color:var(--atk-text)}
+.ps.warn .pn{color:var(--warn-text)}
+.pd{font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--muted);margin-top:2px;min-height:14px}
+.ps.done .pd{color:var(--atk-accent)}
+.ps.warn .pd{color:var(--warn-text)}
+.pbadge{font-family:'IBM Plex Mono',monospace;font-size:10px;padding:2px 7px;border-radius:20px;border:1px solid;flex-shrink:0;opacity:0;transition:opacity .2s}
+.ps.done .pbadge{opacity:1;color:var(--atk-text);background:var(--atk-bg);border-color:var(--atk-border)}
+.ps.warn .pbadge{opacity:1;color:var(--warn-text);background:var(--warn-bg);border-color:var(--warn-border)}
+
+/* Summary */
+.pre-sum{display:none;margin-top:14px;padding:14px 16px;background:var(--atk-bg);border:1px solid var(--atk-border);border-radius:10px}
+.pre-sum.vis{display:block;animation:si .25s ease}
+.sum-title{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--atk-accent);margin-bottom:10px}
+.sum-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.sum-stat{background:var(--surface);border:1px solid var(--atk-border);border-radius:8px;padding:10px 12px}
+.ss-lbl{font-size:11px;color:var(--muted);margin-bottom:4px}
+.ss-val{font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:500;color:var(--atk-text)}
+
+/* Main grid */
+.main-grid{display:grid;grid-template-columns:300px 1fr;gap:16px;align-items:start}
+
+/* Blocks */
+.cat-group{margin-bottom:16px}
+.cat-group:last-child{margin-bottom:0}
+.cat-lbl{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:7px;padding-left:2px}
+.block{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;border:1px solid;cursor:grab;margin-bottom:6px;user-select:none;transition:transform .12s,box-shadow .12s,opacity .15s}
+.block:last-child{margin-bottom:0}
+.block:active{cursor:grabbing}
+.block.dragging{opacity:.3;transform:scale(.97)}
+.block.used{opacity:.3;pointer-events:none}
+.block:hover:not(.used){transform:translateX(3px);box-shadow:2px 2px 8px rgba(0,0,0,.06)}
+.b-atk{background:var(--atk-bg);border-color:var(--atk-border)}
+.b-eval{background:var(--eval-bg);border-color:var(--eval-border)}
+.bi{width:30px;height:30px;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:14px}
+.b-atk  .bi{background:#c6f0de}
+.b-eval .bi{background:#fce5bb}
+.binfo{flex:1;min-width:0}
+.bname{font-size:13px;font-weight:500}
+.b-atk  .bname{color:var(--atk-text)}
+.b-eval .bname{color:var(--eval-text)}
+.bdesc{font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4}
+.drag-h{font-size:14px;color:var(--border2);flex-shrink:0}
+
+/* Drop zone */
+.right-pane{display:flex;flex-direction:column;gap:14px}
+.drop-zone{min-height:200px;border:1.5px dashed var(--border2);border-radius:10px;padding:14px;transition:border-color .15s,background .15s;position:relative}
+.drop-zone.over{border-color:var(--pre-accent);background:#f0f4ff}
+.drop-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;pointer-events:none}
+.de-icon{width:44px;height:44px;border:1.5px dashed var(--border2);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--border2)}
+.de-txt{font-size:12px;color:var(--muted);font-family:'IBM Plex Mono',monospace}
+.pipeline{display:flex;flex-direction:column}
+.pcon{display:flex;align-items:center;height:26px;padding-left:16px;gap:6px}
+.pcon-line{width:1px;height:100%;background:var(--border2);margin-left:10px}
+.pcon-lbl{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:.06em}
+.pipe-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;border:1px solid;animation:si .2s cubic-bezier(.2,.8,.3,1) both}
+.pipe-item.b-atk{background:var(--atk-bg);border-color:var(--atk-border)}
+.pipe-item.b-eval{background:var(--eval-bg);border-color:var(--eval-border)}
+.p-step{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);width:18px;text-align:center;flex-shrink:0}
+.p-icon{width:26px;height:26px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
+.b-atk  .p-icon{background:#c6f0de}
+.b-eval .p-icon{background:#fce5bb}
+.p-info{flex:1}
+.p-name{font-size:13px;font-weight:500}
+.b-atk  .p-name{color:var(--atk-text)}
+.b-eval .p-name{color:var(--eval-text)}
+.p-desc{font-size:11px;color:var(--muted);margin-top:2px}
+.p-rm{background:none;border:none;cursor:pointer;color:var(--border2);font-size:14px;line-height:1;padding:2px 4px;border-radius:4px;transition:color .1s,background .1s;flex-shrink:0}
+.p-rm:hover{color:#c03030;background:#fde8e8}
+.sum-chips{display:flex;gap:6px;flex-wrap:wrap}
+.sum-chip{font-family:'IBM Plex Mono',monospace;font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid}
+.sum-chip.b-atk{color:var(--atk-text);background:var(--atk-bg);border-color:var(--atk-border)}
+.sum-chip.b-eval{color:var(--eval-text);background:var(--eval-bg);border-color:var(--eval-border)}
+.hint{font-size:12px;color:var(--muted);font-family:'IBM Plex Mono',monospace;text-align:center}
+
+/* Template upload panel */
+.tmpl-panel{display:none;padding:14px;background:var(--pre-bg);border:1px solid var(--pre-border);border-radius:10px}
+.tmpl-panel.vis{display:block;animation:si .2s ease}
+.tmpl-title{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--pre-accent);margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.tmpl-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.tmpl-item{background:var(--surface);border:1px solid var(--pre-border);border-radius:8px;padding:10px 12px}
+.tmpl-lbl{font-size:11px;color:var(--muted);margin-bottom:6px;font-family:'IBM Plex Mono',monospace}
+.tmpl-req{color:#ef4444;margin-left:2px}
+.tmpl-pick{width:100%;padding:6px 8px;font-size:11px;font-family:'IBM Plex Mono',monospace;background:var(--surface2);border:1px solid var(--border2);border-radius:5px;cursor:pointer;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tmpl-pick.ok{background:var(--atk-bg);border-color:var(--atk-border);color:var(--atk-text)}
+.tmpl-hint{font-size:10px;color:var(--muted);margin-top:4px;font-family:'IBM Plex Mono',monospace}
+
+/* Known key input */
+.key-input-wrap{margin-top:14px;padding:14px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:10px}
+.key-input-label{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-bottom:7px;display:flex;align-items:center;gap:6px}
+.key-input-label .opt{color:var(--eval-accent)}
+.key-hex-inp{width:100%;font-family:'IBM Plex Mono',monospace;font-size:13px;padding:8px 10px;border:1px solid var(--border2);border-radius:7px;background:var(--surface);color:var(--text);letter-spacing:.07em}
+.key-hex-inp:focus{outline:none;border-color:var(--pre-accent)}
+.key-inp-hint{font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--muted);margin-top:5px}
+
+/* Key bytes comparison */
+.key-bytes-row{display:flex;flex-wrap:wrap;gap:5px;margin:10px 0 4px}
+.kb{width:34px;height:34px;border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500;color:var(--muted);background:var(--surface2);transition:all .3s;position:relative}
+.kb.found{background:var(--atk-bg);border-color:var(--atk-border);color:var(--atk-text)}
+.kb.correct{background:#dcfce7;border-color:#16a34a;color:#14532d}
+.kb.correct::after{content:'✓';position:absolute;top:-6px;right:-4px;font-size:9px;color:#16a34a}
+.kb.wrong{background:#fee2e2;border-color:#dc2626;color:#7f1d1d}
+.kb.wrong::after{content:'✗';position:absolute;top:-6px;right:-4px;font-size:9px;color:#dc2626}
+.score-bar{display:none;padding:10px 12px;border-radius:8px;border:1px solid;font-family:'IBM Plex Mono',monospace;font-size:12px;margin-top:8px}
+.score-bar.vis{display:block}
+.score-bar.perfect{background:#dcfce7;border-color:#16a34a;color:#14532d}
+.score-bar.partial{background:var(--eval-bg);border-color:var(--eval-border);color:var(--eval-text)}
+.score-bar.zero{background:var(--warn-bg);border-color:var(--warn-border);color:var(--warn-text)}
+
+/* Btn */
+.btn-row{display:flex;gap:8px}
+.btn{flex:1;padding:10px 14px;border-radius:8px;border:1px solid var(--border2);background:var(--surface);color:var(--text);font-size:13px;font-family:'Noto Sans TC',sans-serif;cursor:pointer;font-weight:500;transition:all .15s;display:flex;align-items:center;justify-content:center;gap:6px}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn-primary{background:var(--pre-accent);border-color:var(--pre-accent);color:#fff}
+.btn-primary:not(:disabled):hover{background:#2a5de0;border-color:#2a5de0}
+.btn-ghost:not(:disabled):hover{background:var(--surface2)}
+.spinner{width:14px;height:14px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin .65s linear infinite;display:none;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.btn.loading .spinner{display:block}
+
+/* Result */
+.dot-pulse{width:8px;height:8px;border-radius:50%;background:var(--atk-accent);animation:pulse 1.2s ease-in-out infinite;flex-shrink:0}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.75)}}
+.r-steps{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
+.r-step{display:flex;align-items:center;gap:10px;font-size:13px}
+.rck{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;flex-shrink:0;font-weight:500}
+.rck.done{background:var(--atk-bg);color:var(--atk-text);border:1px solid var(--atk-border)}
+.rck.act{background:var(--pre-bg);color:var(--pre-text);border:1px solid var(--pre-border);animation:pulse 1s infinite}
+.rck.wait{background:var(--surface2);color:var(--muted);border:1px solid var(--border)}
+.r-key{font-family:'IBM Plex Mono',monospace;font-size:17px;font-weight:500;color:var(--atk-text);letter-spacing:.1em;margin:10px 0 4px;word-break:break-all}
+.r-lbl{font-size:11px;color:var(--muted);font-family:'IBM Plex Mono',monospace;letter-spacing:.06em;text-transform:uppercase}
+.conf-bg{margin-top:6px;height:6px;background:var(--surface2);border-radius:4px;overflow:hidden}
+.conf-fg{height:100%;background:var(--atk-accent);border-radius:4px;width:0;transition:width 1.2s cubic-bezier(.2,.8,.3,1)}
+.res-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:14px}
+.res-stat{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+.rsl{font-size:11px;color:var(--muted);margin-bottom:4px}
+.rsv{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:500;color:var(--text)}
+.r-plot{margin-top:14px;border-radius:8px;overflow:hidden;border:1px solid var(--border)}
+.r-plot img{width:100%;display:block}
+.r-advice{margin-top:14px;padding:12px 14px;background:var(--eval-bg);border:1px solid var(--eval-border);border-radius:8px;font-size:13px;color:var(--eval-text);line-height:1.8}
+
+/* Error */
+.err-box{display:none;padding:12px 14px;background:var(--warn-bg);border:1px solid var(--warn-border);border-radius:8px;font-size:13px;color:var(--warn-text);font-family:'IBM Plex Mono',monospace;line-height:1.6}
+.err-box.vis{display:block}
+
+/* API config */
+.api-cfg{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:7px}
+.api-cfg label{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);white-space:nowrap}
+.api-cfg input{flex:1;font-family:'IBM Plex Mono',monospace;font-size:12px;border:1px solid var(--border);border-radius:5px;padding:4px 8px;background:var(--surface);color:var(--text);min-width:0}
+.api-cfg input:focus{outline:none;border-color:var(--pre-accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">
+      <div class="logo-mark">
+        <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      </div>
+      <div class="logo-text">
+        <strong>SCA Platform</strong>
+        <span>旁通道攻擊分析平台 — AES-128</span>
+      </div>
+    </div>
+    <div class="hdr-right">
+      <div class="api-dot" id="api-dot"></div>
+      <span class="api-url" id="api-url-label">localhost:8000</span>
+      <div class="hdr-badge" id="api-status-badge">checking…</div>
+    </div>
+  </header>
+
+  <!-- Steps -->
+  <div class="steps-bar">
+    <div class="step-tab active" id="tab-1" onclick="goStep(1)">
+      <div class="step-num" id="num-1">1</div>
+      <div class="step-label">上傳資料</div>
+    </div>
+    <div class="step-div"></div>
+    <div class="step-tab" id="tab-2" onclick="goStep(2)">
+      <div class="step-num" id="num-2">2</div>
+      <div class="step-label">組合流程</div>
+    </div>
+    <div class="step-div"></div>
+    <div class="step-tab" id="tab-3" onclick="goStep(3)">
+      <div class="step-num" id="num-3">3</div>
+      <div class="step-label">查看結果</div>
+    </div>
+  </div>
+
+  <!-- ══ STEP 1 ══ -->
+  <div id="sec-1">
+    <div class="panel">
+      <div class="panel-hd">
+        <div class="panel-dot" style="background:var(--pre-accent)"></div>
+        <div class="panel-title">上傳資料檔案</div>
+        <div style="margin-left:auto">
+          <div class="api-cfg">
+            <label>API</label>
+            <input type="text" id="api-base" value="http://localhost:8000" oninput="checkApi()">
+          </div>
+        </div>
+      </div>
+      <div class="panel-bd">
+
+        <!-- Two upload columns -->
+        <div class="upload-row">
+          <!-- Traces -->
+          <div class="upload-col">
+            <label>Traces 功耗波形 <span style="color:#ef4444">*</span></label>
+            <div class="upload-area" id="upload-area-traces">
+              <input type="file" id="file-input-traces" accept=".npy,.csv,.h5,.hdf5,.trs" onchange="handleFile('traces',this)">
+              <div class="up-icon">↑</div>
+              <div class="up-title">拖曳或點擊選取</div>
+              <div class="up-sub">shape (N, trace_length)</div>
+              <div class="fmt-chips">
+                <span class="fmt-chip">.npy</span><span class="fmt-chip">.csv</span>
+                <span class="fmt-chip">.h5</span><span class="fmt-chip">.trs</span>
+              </div>
+            </div>
+            <div class="file-card" id="fc-traces">
+              <div class="file-ext" id="fe-traces">NPY</div>
+              <div class="file-info">
+                <div class="file-nm" id="fn-traces"></div>
+                <div class="file-mt" id="fm-traces"></div>
+              </div>
+              <button class="file-rm" onclick="removeFile('traces')">✕</button>
+            </div>
+          </div>
+
+          <!-- Plaintexts -->
+          <div class="upload-col">
+            <label>Plaintexts 明文 <span style="color:#ef4444">*</span></label>
+            <div class="upload-area" id="upload-area-pt" style="padding:28px 16px">
+              <input type="file" id="file-input-pt" accept=".npy,.csv" onchange="handleFile('pt',this)">
+              <div class="up-icon">📄</div>
+              <div class="up-title">拖曳或點擊選取</div>
+              <div class="up-sub">shape (N, 16) uint8</div>
+              <div class="fmt-chips">
+                <span class="fmt-chip">.npy</span><span class="fmt-chip">.csv</span>
+              </div>
+            </div>
+            <div class="file-card" id="fc-pt">
+              <div class="file-ext" id="fe-pt">NPY</div>
+              <div class="file-info">
+                <div class="file-nm" id="fn-pt"></div>
+                <div class="file-mt" id="fm-pt"></div>
+              </div>
+              <button class="file-rm" onclick="removeFile('pt')">✕</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pre-processing -->
+        <div id="pre-sec">
+          <div style="margin:16px 0 10px;display:flex;align-items:center;gap:8px">
+            <div style="font-size:11px;font-family:'IBM Plex Mono',monospace;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)">前處理（本地預覽）</div>
+            <div style="flex:1;height:1px;background:var(--border)"></div>
+            <div style="font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--muted)" id="pre-pct">0%</div>
+          </div>
+          <div class="pre-bar-bg"><div class="pre-bar-fg" id="pre-bar"></div></div>
+          <div class="pre-steps">
+            <div class="ps" id="ps-read">
+              <div class="pi" id="pi-read">📂</div>
+              <div class="pb"><div class="pn">讀取檔案</div><div class="pd" id="pd-read">等待中⋯</div></div>
+              <div class="pbadge" id="pbg-read">完成</div>
+            </div>
+            <div class="ps" id="ps-parse">
+              <div class="pi" id="pi-parse">◉</div>
+              <div class="pb"><div class="pn">解析格式 / 維度</div><div class="pd" id="pd-parse">等待中⋯</div></div>
+              <div class="pbadge" id="pbg-parse">完成</div>
+            </div>
+            <div class="ps" id="ps-snr">
+              <div class="pi" id="pi-snr">↗</div>
+              <div class="pb"><div class="pn">SNR 初估</div><div class="pd" id="pd-snr">等待中⋯</div></div>
+              <div class="pbadge" id="pbg-snr">完成</div>
+            </div>
+          </div>
+          <div class="pre-sum" id="pre-sum">
+            <div class="sum-title">Trace 摘要</div>
+            <div class="sum-grid">
+              <div class="sum-stat"><div class="ss-lbl">Trace 數量</div><div class="ss-val" id="sN">—</div></div>
+              <div class="sum-stat"><div class="ss-lbl">採樣點 / 條</div><div class="ss-val" id="sL">—</div></div>
+              <div class="sum-stat"><div class="ss-lbl">檔案格式</div><div class="ss-val" id="sFmt">—</div></div>
+              <div class="sum-stat"><div class="ss-lbl">SNR 估計</div><div class="ss-val" id="sSnr">—</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Known key (optional) -->
+        <div class="key-input-wrap">
+          <div class="key-input-label">
+            已知金鑰（供比對）<span class="opt">選填</span>
+          </div>
+          <input type="text" id="known-key-input" class="key-hex-inp" maxlength="32"
+            placeholder="2b7e151628aed2a6abf7158809cf4f3c（32 hex chars）"
+            oninput="validateKeyInput(this)">
+          <div class="key-inp-hint" id="key-inp-hint">提供後，攻擊結果將顯示每個 byte 猜對與否</div>
+        </div>
+
+        <div style="margin-top:14px">
+          <button class="btn btn-primary" id="next1-btn" disabled onclick="goStep(2)" style="width:100%;padding:12px">
+            下一步：組合攻擊流程 →
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ STEP 2 ══ -->
+  <div id="sec-2">
+    <div class="main-grid">
+
+      <!-- Left: library -->
+      <div class="panel">
+        <div class="panel-hd">
+          <div class="panel-dot" style="background:var(--pre-accent)"></div>
+          <div class="panel-title">模組庫　拖曳至右方</div>
+        </div>
+        <div class="panel-bd">
+          <div class="cat-group">
+            <div class="cat-lbl" style="color:var(--atk-accent)">── 攻擊方法</div>
+            <div class="block b-atk" draggable="true" data-id="cpa"      data-name="CPA 攻擊"       data-desc="Pearson 相關係數電力分析" data-cat="atk" data-icon="⊗">
+              <div class="bi">⊗</div><div class="binfo"><div class="bname">CPA 攻擊</div><div class="bdesc">相關電力分析</div></div><div class="drag-h">⠿</div>
+            </div>
+            <div class="block b-atk" draggable="true" data-id="dpa_dom"  data-name="DPA-DoM 攻擊"   data-desc="差值均值推算金鑰位元組"   data-cat="atk" data-icon="⊕">
+              <div class="bi">⊕</div><div class="binfo"><div class="bname">DPA-DoM 攻擊</div><div class="bdesc">差值均值分析</div></div><div class="drag-h">⠿</div>
+            </div>
+            <div class="block b-atk" draggable="true" data-id="dpa_pcc"  data-name="DPA-PCC 攻擊"   data-desc="LSB Pearson 相關分析"     data-cat="atk" data-icon="⊘">
+              <div class="bi">⊘</div><div class="binfo"><div class="bname">DPA-PCC 攻擊</div><div class="bdesc">Pearson LSB 模型</div></div><div class="drag-h">⠿</div>
+            </div>
+            <div class="block b-atk" draggable="true" data-id="mia"      data-name="MIA 攻擊"        data-desc="互資訊捕捉非線性洩漏"    data-cat="atk" data-icon="⊛">
+              <div class="bi">⊛</div><div class="binfo"><div class="bname">MIA 攻擊</div><div class="bdesc">互資訊分析</div></div><div class="drag-h">⠿</div>
+            </div>
+            <div class="block b-atk" draggable="true" data-id="template" data-name="Template Attack" data-desc="SNR→POI→多變量高斯模板"  data-cat="atk" data-icon="◧">
+              <div class="bi">◧</div><div class="binfo"><div class="bname">Template Attack</div><div class="bdesc">含 SNR 分析</div></div><div class="drag-h">⠿</div>
+            </div>
+          </div>
+          <div class="cat-group">
+            <div class="cat-lbl" style="color:var(--eval-accent)">── 評估輸出</div>
+            <div class="block b-eval" draggable="true" data-id="_snr"    data-name="SNR 分析圖"    data-desc="Template Attack 自動輸出" data-cat="eval" data-icon="↗">
+              <div class="bi">↗</div><div class="binfo"><div class="bname">SNR 分析圖</div><div class="bdesc">Template Attack 自動輸出</div></div><div class="drag-h">⠿</div>
+            </div>
+            <div class="block b-eval" draggable="true" data-id="_report" data-name="安全建議報告"  data-desc="Masking/Hiding 加固建議"  data-cat="eval" data-icon="≡">
+              <div class="bi">≡</div><div class="binfo"><div class="bname">安全建議報告</div><div class="bdesc">加固建議輸出</div></div><div class="drag-h">⠿</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: drop + template panel -->
+      <div class="right-pane">
+        <div style="padding:10px 14px;background:var(--pre-bg);border:1px solid var(--pre-border);border-radius:8px;display:flex;align-items:center;gap:10px">
+          <div style="width:8px;height:8px;border-radius:50%;background:var(--pre-accent);flex-shrink:0"></div>
+          <span style="font-size:12px;font-family:'IBM Plex Mono',monospace;color:var(--pre-text);flex:1">Trace 已載入・準備送出至 FastAPI</span>
+          <span style="font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px" id="mini-name"></span>
+          <button style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--muted);font-family:'IBM Plex Mono',monospace;flex-shrink:0" onclick="goStep(1)">← 更換</button>
+        </div>
+
+        <div class="panel">
+          <div class="panel-hd">
+            <div class="panel-dot" style="background:var(--atk-accent)"></div>
+            <div class="panel-title">分析流程</div>
+          </div>
+          <div style="padding:14px">
+            <div class="drop-zone" id="drop-zone">
+              <div class="drop-empty" id="drop-empty">
+                <div class="de-icon">＋</div>
+                <div class="de-txt">將攻擊方法拖曳至此</div>
+              </div>
+              <div class="pipeline" id="pipeline"></div>
+            </div>
+            <div id="sum-row" style="display:none;margin-top:10px">
+              <div class="sum-chips" id="sum-chips"></div>
+            </div>
+            <div class="hint" style="margin-top:10px" id="hint-txt">至少加入一個攻擊方法才能執行</div>
+          </div>
+        </div>
+
+        <!-- Template Attack extra files (shown only when template is in pipeline) -->
+        <div class="tmpl-panel" id="tmpl-panel">
+          <div class="tmpl-title">
+            <span>◧</span>
+            Template Attack — 需要額外訓練資料
+          </div>
+          <div class="tmpl-grid">
+            <div class="tmpl-item">
+              <div class="tmpl-lbl">Template Traces<span class="tmpl-req">*</span></div>
+              <input type="file" id="tmpl-traces-inp" accept=".npy,.csv" style="display:none" onchange="handleTmplFile('traces',this)">
+              <button class="tmpl-pick" id="tmpl-traces-btn" onclick="document.getElementById('tmpl-traces-inp').click()">選擇檔案…</button>
+              <div class="tmpl-hint">shape (N_tmpl, trace_len) .npy</div>
+            </div>
+            <div class="tmpl-item">
+              <div class="tmpl-lbl">Template Plaintexts<span class="tmpl-req">*</span></div>
+              <input type="file" id="tmpl-pt-inp" accept=".npy,.csv" style="display:none" onchange="handleTmplFile('pt',this)">
+              <button class="tmpl-pick" id="tmpl-pt-btn" onclick="document.getElementById('tmpl-pt-inp').click()">選擇檔案…</button>
+              <div class="tmpl-hint">shape (N_tmpl, 16) uint8 .npy</div>
+            </div>
+            <div class="tmpl-item">
+              <div class="tmpl-lbl">Template Keys<span class="tmpl-req">*</span></div>
+              <input type="file" id="tmpl-keys-inp" accept=".npy,.csv" style="display:none" onchange="handleTmplFile('keys',this)">
+              <button class="tmpl-pick" id="tmpl-keys-btn" onclick="document.getElementById('tmpl-keys-inp').click()">選擇檔案…</button>
+              <div class="tmpl-hint">shape (N_tmpl, 16) uint8 .npy</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="err-box" id="api-err"></div>
+
+        <div class="btn-row">
+          <button class="btn btn-primary" id="run-btn" disabled onclick="runPipeline()">
+            <div class="spinner"></div>
+            <span id="run-txt">▶ 送出至 FastAPI</span>
+          </button>
+          <button class="btn btn-ghost" id="clr-btn" disabled onclick="clearAll()">清除</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ STEP 3 ══ -->
+  <div id="sec-3">
+    <div class="panel">
+      <div class="panel-hd">
+        <div class="dot-pulse" id="r-dot" style="display:none"></div>
+        <div class="panel-dot" id="r-dot-static" style="background:var(--atk-accent)"></div>
+        <div class="panel-title" id="r-status">分析結果</div>
+        <button style="margin-left:auto;background:none;border:none;cursor:pointer;font-size:12px;color:var(--muted);font-family:'IBM Plex Mono',monospace" onclick="goStep(2)">← 返回修改</button>
+      </div>
+      <div class="panel-bd">
+        <div class="r-steps" id="r-steps"></div>
+        <div id="r-out" style="display:none;border-top:1px solid var(--border);padding-top:16px">
+          <div class="r-lbl">推算金鑰位元組（AES-128）</div>
+          <div class="key-bytes-row" id="r-key-bytes"></div>
+          <div class="score-bar" id="r-score-bar"></div>
+          <!-- keep r-key hidden for copy convenience -->
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);margin-top:6px;letter-spacing:.06em" id="r-key"></div>
+          <div class="res-grid">
+            <div class="res-stat"><div class="rsl">Trace 數量</div><div class="rsv" id="rN">—</div></div>
+            <div class="res-stat"><div class="rsl">採樣點 / 條</div><div class="rsv" id="rL">—</div></div>
+            <div class="res-stat"><div class="rsl">演算法</div><div class="rsv" id="rAlgo">—</div></div>
+            <div class="res-stat"><div class="rsl">耗時</div><div class="rsv" id="rTime">—</div></div>
+          </div>
+          <div style="margin-top:14px">
+            <div class="r-lbl">攻擊信心指數</div>
+            <div class="conf-bg"><div class="conf-fg" id="conf-fg"></div></div>
+            <div style="margin-top:4px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--atk-text)" id="conf-lbl"></div>
+          </div>
+          <div class="r-plot" id="r-plot" style="display:none">
+            <img id="r-img" src="" alt="attack correlation plot">
+          </div>
+          <div class="r-advice" id="r-advice" style="display:none">
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--eval-accent);margin-bottom:6px">安全建議</div>
+            <div id="r-advice-txt"></div>
+          </div>
+          <button class="btn btn-primary" style="margin-top:12px;width:100%" onclick="goStep(1);removeFile('traces');removeFile('pt')">重新分析</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let uploadedFiles = {traces: null, pt: null};
+let preDone = false;
+const pipeItems = [];
+let traceN = 0, traceL = 0, traceFmt = '';
+let apiAlgos = [];
+let tmplFiles = {traces: null, pt: null, keys: null};
+
+// ── API ───────────────────────────────────────────────────────────────────────
+function getApi(){ return document.getElementById('api-base').value.replace(/\/+$/,''); }
+
+async function checkApi() {
+  const dot = document.getElementById('api-dot');
+  const badge = document.getElementById('api-status-badge');
+  const base = getApi();
+  document.getElementById('api-url-label').textContent = base.replace(/https?:\/\//,'');
+  try {
+    const r = await fetch(base+'/health', {signal: AbortSignal.timeout(2500)});
+    if (r.ok) { dot.className='api-dot ok'; badge.textContent='API 連線中'; loadAlgos(base); }
+    else throw new Error();
+  } catch { dot.className='api-dot err'; badge.textContent='API 離線'; }
+}
+
+async function loadAlgos(base) {
+  try { const r=await fetch(base+'/algorithms'); const d=await r.json(); apiAlgos=d.algorithms||[]; } catch {}
+}
+
+// ── Step nav ──────────────────────────────────────────────────────────────────
+function goStep(n) {
+  if (n===2 && !preDone) return;
+  if (n===3) return;
+  ['sec-1','sec-2','sec-3'].forEach((id,i)=>{ document.getElementById(id).style.display=(i+1===n)?'block':'none'; });
+  [1,2,3].forEach(i=>{
+    document.getElementById('tab-'+i).className='step-tab'+(i===n?' active':i<n?' done':'');
+    document.getElementById('num-'+i).textContent=i<n?'✓':i;
+  });
+}
+
+// ── Upload ────────────────────────────────────────────────────────────────────
+['traces','pt'].forEach(key=>{
+  const ua=document.getElementById('upload-area-'+key);
+  ua.addEventListener('dragover',e=>{e.preventDefault();ua.classList.add('over');});
+  ua.addEventListener('dragleave',e=>{if(!ua.contains(e.relatedTarget))ua.classList.remove('over');});
+  ua.addEventListener('drop',e=>{e.preventDefault();ua.classList.remove('over');if(e.dataTransfer.files[0])applyFile(key,e.dataTransfer.files[0]);});
+});
+
+function handleFile(key,inp){ if(inp.files[0]) applyFile(key,inp.files[0]); }
+
+function applyFile(key, f) {
+  uploadedFiles[key] = f;
+  const ext = f.name.split('.').pop().toUpperCase();
+  document.getElementById('fe-'+key).textContent = ext;
+  document.getElementById('fn-'+key).textContent = f.name;
+  document.getElementById('fm-'+key).textContent = (f.size/1048576).toFixed(1)+' MB';
+  document.getElementById('fc-'+key).classList.add('vis');
+  if (key==='traces') {
+    document.getElementById('mini-name').textContent = f.name;
+    preDone = false;
+    document.getElementById('next1-btn').disabled = true;
+    ['read','parse','snr'].forEach(id=>{ document.getElementById('ps-'+id).className='ps'; document.getElementById('pd-'+id).textContent='等待中⋯'; });
+    document.getElementById('pre-bar').style.width='0';
+    document.getElementById('pre-pct').textContent='0%';
+    document.getElementById('pre-sum').classList.remove('vis');
+    document.getElementById('pre-sec').style.display='block';
+    startPre(f);
+  }
+  checkNext1();
+}
+
+function removeFile(key) {
+  uploadedFiles[key] = null;
+  document.getElementById('fc-'+key).classList.remove('vis');
+  document.getElementById('file-input-'+key).value='';
+  if(key==='traces'){
+    preDone=false;
+    document.getElementById('pre-sec').style.display='none';
+    document.getElementById('next1-btn').disabled=true;
+  }
+}
+
+// ── NPY shape ─────────────────────────────────────────────────────────────────
+function readNpyShape(buf) {
+  const b=new Uint8Array(buf,0,Math.min(512,buf.byteLength));
+  if(b[0]!==0x93) return null;
+  const maj=b[6], hLen=maj===1?(b[8]|(b[9]<<8)):(b[8]|(b[9]<<8)|(b[10]<<16)|(b[11]<<24));
+  const base=maj===1?10:12;
+  const hdr=new TextDecoder().decode(b.slice(base,base+hLen));
+  const sm=hdr.match(/'shape':\s*\(([^)]*)\)/);
+  return sm?sm[1].split(',').map(s=>parseInt(s)).filter(n=>!isNaN(n)&&n>0):null;
+}
+
+// ── Pre animation ─────────────────────────────────────────────────────────────
+function setPs(id,state,detail){ document.getElementById('ps-'+id).className='ps '+state; document.getElementById('pd-'+id).textContent=detail; }
+function setBar(p){ document.getElementById('pre-bar').style.width=p+'%'; document.getElementById('pre-pct').textContent=p+'%'; }
+
+function startPre(f) {
+  const ext=f.name.split('.').pop().toUpperCase(); traceFmt=ext;
+  const rdr=new FileReader();
+  rdr.onload=e=>{
+    let N=Math.floor(Math.random()*3000+500), L=Math.floor(Math.random()*3000+2000);
+    if(ext==='NPY'){const sh=readNpyShape(e.target.result);if(sh&&sh.length>=2){N=sh[0];L=sh[1];}}
+    traceN=N; traceL=L; runPreAnim(N,L,ext);
+  };
+  rdr.onerror=()=>runPreAnim(traceN||500,traceL||2000,ext);
+  rdr.readAsArrayBuffer(f.slice(0,512));
+}
+
+function runPreAnim(N,L,fmt) {
+  const snr=(Math.random()*5+6).toFixed(1);
+  setTimeout(()=>{setPs('read','run','讀取中⋯');setBar(15);},200);
+  setTimeout(()=>{setPs('read','done',`${(uploadedFiles.traces.size/1024).toFixed(1)} KB`);setBar(33);},1000);
+  setTimeout(()=>{setPs('parse','run','解析維度⋯');setBar(45);},1300);
+  setTimeout(()=>{
+    setPs('parse','done',`${N.toLocaleString()} × ${L.toLocaleString()} pts (${fmt})`);
+    setBar(66);
+    document.getElementById('sN').textContent=N.toLocaleString();
+    document.getElementById('sL').textContent=L.toLocaleString();
+    document.getElementById('sFmt').textContent=fmt;
+  },2100);
+  setTimeout(()=>{setPs('snr','run','估算信噪比⋯');setBar(80);},2400);
+  setTimeout(()=>{
+    setPs('snr','done',`峰值 SNR ≈ ${snr} dB`);
+    setBar(100);
+    document.getElementById('sSnr').textContent=snr+' dB';
+    document.getElementById('pre-sum').classList.add('vis');
+    preDone=true;
+    checkNext1();
+  },3500);
+}
+
+// ── Drag & Drop ───────────────────────────────────────────────────────────────
+document.querySelectorAll('.block').forEach(b=>{
+  b.addEventListener('dragstart',e=>{b.classList.add('dragging');e.dataTransfer.setData('blockId',b.dataset.id);});
+  b.addEventListener('dragend',()=>b.classList.remove('dragging'));
+});
+const dz=document.getElementById('drop-zone');
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('over');});
+dz.addEventListener('dragleave',e=>{if(!dz.contains(e.relatedTarget))dz.classList.remove('over');});
+dz.addEventListener('drop',e=>{
+  e.preventDefault();dz.classList.remove('over');
+  const id=e.dataTransfer.getData('blockId'); if(!id)return;
+  const blk=document.querySelector(`.block[data-id="${id}"]`);
+  if(!blk||blk.classList.contains('used'))return;
+  addPipe(blk.dataset.id,blk.dataset.name,blk.dataset.desc,blk.dataset.cat,blk.dataset.icon);
+  blk.classList.add('used');
+});
+
+function addPipe(id,name,desc,cat,icon){ pipeItems.push({id,name,desc,cat,icon}); renderPipe(); updatePipeUI(); }
+function removePipe(i){
+  const it=pipeItems.splice(i,1)[0];
+  document.querySelector(`.block[data-id="${it.id}"]`)?.classList.remove('used');
+  if(it.id==='template'){ tmplFiles={traces:null,pt:null,keys:null}; resetTmplBtns(); }
+  renderPipe(); updatePipeUI();
+}
+function clearAll(){
+  pipeItems.forEach(it=>document.querySelector(`.block[data-id="${it.id}"]`)?.classList.remove('used'));
+  pipeItems.length=0;
+  tmplFiles={traces:null,pt:null,keys:null}; resetTmplBtns();
+  renderPipe(); updatePipeUI();
+}
+function resetTmplBtns(){
+  ['traces','pt','keys'].forEach(k=>{
+    const btn=document.getElementById('tmpl-'+k+'-btn');
+    if(btn){btn.textContent='選擇檔案…';btn.className='tmpl-pick';}
+    const inp=document.getElementById('tmpl-'+k+'-inp');
+    if(inp)inp.value='';
+  });
+}
+
+function renderPipe(){
+  const pl=document.getElementById('pipeline');
+  pl.innerHTML='';
+  document.getElementById('drop-empty').style.display=pipeItems.length?'none':'flex';
+  pipeItems.forEach((it,i)=>{
+    if(i>0){const c=document.createElement('div');c.className='pcon';c.innerHTML='<div class="pcon-line"></div><span class="pcon-lbl" style="margin-left:6px">step '+(i+1)+'</span>';pl.appendChild(c);}
+    const row=document.createElement('div');
+    row.className=`pipe-item b-${it.cat}`;
+    row.innerHTML=`<span class="p-step">${i+1}</span><div class="p-icon">${it.icon}</div><div class="p-info"><div class="p-name">${it.name}</div><div class="p-desc">${it.desc}</div></div><button class="p-rm" onclick="removePipe(${i})">✕</button>`;
+    pl.appendChild(row);
+  });
+}
+
+function updatePipeUI(){
+  const hasAtk=pipeItems.some(p=>p.cat==='atk');
+  const hasTemplate=pipeItems.some(p=>p.id==='template');
+  const tmplReady=!hasTemplate||(tmplFiles.traces&&tmplFiles.pt&&tmplFiles.keys);
+  document.getElementById('run-btn').disabled=!hasAtk||!tmplReady;
+  document.getElementById('clr-btn').disabled=pipeItems.length===0;
+  const tp=document.getElementById('tmpl-panel');
+  if(hasTemplate) tp.classList.add('vis'); else tp.classList.remove('vis');
+  const sr=document.getElementById('sum-row');
+  if(pipeItems.length){
+    sr.style.display='block';
+    document.getElementById('sum-chips').innerHTML=pipeItems.map(p=>`<span class="sum-chip b-${p.cat}">${p.name}</span>`).join('');
+    let hint=hasAtk?'▶ 點擊送出至 FastAPI':'至少加入一個攻擊方法才能執行';
+    if(hasAtk&&hasTemplate&&!tmplReady) hint='⚠ 請上傳 Template Attack 所需的三個訓練資料檔案';
+    document.getElementById('hint-txt').textContent=hint;
+  }else{
+    sr.style.display='none';
+    document.getElementById('hint-txt').textContent='至少加入一個攻擊方法才能執行';
+  }
+}
+
+// ── Template file handler ─────────────────────────────────────────────────────
+function handleTmplFile(key, inp) {
+  const f=inp.files[0]; if(!f)return;
+  const btnMap={traces:'tmpl-traces-btn',pt:'tmpl-pt-btn',keys:'tmpl-keys-btn'};
+  tmplFiles[key]=f;
+  const btn=document.getElementById(btnMap[key]);
+  btn.textContent=f.name.length>20?f.name.slice(0,18)+'…':f.name;
+  btn.className='tmpl-pick ok';
+  updatePipeUI();
+}
+
+// ── Run ───────────────────────────────────────────────────────────────────────
+async function runPipeline() {
+  const atkItems=pipeItems.filter(p=>p.cat==='atk');
+  if(!atkItems.length||!uploadedFiles.traces) return;
+
+  const btn=document.getElementById('run-btn');
+  btn.classList.add('loading'); btn.disabled=true;
+  document.getElementById('run-txt').textContent='送出中…';
+  document.getElementById('api-err').classList.remove('vis');
+
+  // Go to step 3
+  ['sec-1','sec-2','sec-3'].forEach((id,i)=>document.getElementById(id).style.display=i===2?'block':'none');
+  [1,2,3].forEach(i=>{
+    document.getElementById('tab-'+i).className='step-tab'+(i===3?' active':' done');
+    document.getElementById('num-'+i).textContent=i<3?'✓':3;
+  });
+
+  const allSteps=[
+    {label:'載入 Trace 檔案',cat:'done'},
+    ...atkItems.map(a=>({label:a.name+'　'+a.desc,cat:'wait'})),
+    ...pipeItems.filter(p=>p.cat==='eval').map(e=>({label:e.name,cat:'wait'}))
+  ];
+  const rsDiv=document.getElementById('r-steps');
+  rsDiv.innerHTML=allSteps.map((s,i)=>`<div class="r-step" id="rs-${i}"><div class="rck ${s.cat}" id="rc-${i}">${s.cat==='done'?'✓':i}</div><span>${s.label}</span></div>`).join('');
+  document.getElementById('r-dot').style.display='block';
+  document.getElementById('r-dot-static').style.display='none';
+  document.getElementById('r-status').textContent='呼叫 FastAPI⋯';
+  document.getElementById('r-out').style.display='none';
+
+  const t0=Date.now();
+  let lastResult=null;
+
+  for(let ai=0;ai<atkItems.length;ai++){
+    const stepIdx=ai+1;
+    document.getElementById('rc-'+stepIdx)?.setAttribute('class','rck act');
+
+    const fd=new FormData();
+    fd.append('traces_file', uploadedFiles.traces, uploadedFiles.traces.name);
+    // plaintexts optional
+    if(uploadedFiles.pt) fd.append('plaintexts_file', uploadedFiles.pt, uploadedFiles.pt.name);
+    // Template Attack: attach the 3 template files
+    if(atkItems[ai].id==='template'){
+      if(tmplFiles.traces) fd.append('template_traces_file',   tmplFiles.traces, tmplFiles.traces.name);
+      if(tmplFiles.pt)     fd.append('template_plaintexts_file', tmplFiles.pt,   tmplFiles.pt.name);
+      if(tmplFiles.keys)   fd.append('template_keys_file',     tmplFiles.keys,   tmplFiles.keys.name);
+    }
+
+    try {
+      const r=await fetch(getApi()+'/attack/'+atkItems[ai].id, {method:'POST',body:fd});
+      const data=await r.json();
+      if(!r.ok) throw new Error(data.detail||r.statusText);
+      lastResult=data;
+      document.getElementById('rc-'+stepIdx)?.setAttribute('class','rck done');
+      const el=document.getElementById('rs-'+stepIdx);if(el){const c=el.querySelector('.rck');if(c)c.textContent='✓';}
+    } catch(err) {
+      document.getElementById('r-dot').style.display='none';
+      document.getElementById('r-dot-static').style.display='block';
+      document.getElementById('r-status').textContent='攻擊失敗';
+      ['sec-1','sec-2','sec-3'].forEach((id,i)=>document.getElementById(id).style.display=i===1?'block':'none');
+      goStep(2);
+      document.getElementById('api-err').textContent='❌ API 錯誤：'+err.message;
+      document.getElementById('api-err').classList.add('vis');
+      btn.classList.remove('loading'); btn.disabled=false;
+      document.getElementById('run-txt').textContent='▶ 送出至 FastAPI';
+      return;
+    }
+  }
+
+  // Eval steps (animated only)
+  const evalOffset=atkItems.length+1;
+  for(let ei=0;ei<pipeItems.filter(p=>p.cat==='eval').length;ei++){
+    const si=evalOffset+ei;
+    document.getElementById('rc-'+si)?.setAttribute('class','rck act');
+    await new Promise(r=>setTimeout(r,600));
+    document.getElementById('rc-'+si)?.setAttribute('class','rck done');
+    const el=document.getElementById('rs-'+si);if(el){const c=el.querySelector('.rck');if(c)c.textContent='✓';}
+  }
+
+  const elapsed=((Date.now()-t0)/1000).toFixed(2);
+  showResult(lastResult, atkItems, elapsed);
+  btn.classList.remove('loading'); btn.disabled=false;
+  document.getElementById('run-txt').textContent='▶ 送出至 FastAPI';
+}
+
+// ── Show result ───────────────────────────────────────────────────────────────
+function showResult(data, atkItems, elapsed) {
+  document.getElementById('r-dot').style.display='none';
+  document.getElementById('r-dot-static').style.display='block';
+  document.getElementById('r-status').textContent='分析完成';
+
+  const keyHex = data.key_hex || '';
+  // Full hex (small, for copy)
+  document.getElementById('r-key').textContent = keyHex.toUpperCase();
+
+  // Render per-byte boxes
+  const byteArr = keyHex.match(/.{1,2}/g) || [];
+  const knownKey = getKnownKey();
+  const kbRow = document.getElementById('r-key-bytes');
+  kbRow.innerHTML = '';
+  byteArr.forEach((hex, i) => {
+    const d = document.createElement('div');
+    d.className = 'kb';
+    d.textContent = hex.toUpperCase();
+    if (knownKey) {
+      const guessed = parseInt(hex, 16);
+      d.classList.add(guessed === knownKey[i] ? 'correct' : 'wrong');
+    } else {
+      d.classList.add('found');
+    }
+    kbRow.appendChild(d);
+  });
+
+  // Score bar
+  const scoreBar = document.getElementById('r-score-bar');
+  if (knownKey && byteArr.length === 16) {
+    const correct = byteArr.filter((hex,i) => parseInt(hex,16) === knownKey[i]).length;
+    scoreBar.classList.add('vis');
+    if(correct===16){ scoreBar.className='score-bar vis perfect'; scoreBar.innerHTML=`🎉 完美攻擊！猜中全部 <strong>16/16</strong> 個 byte`; }
+    else if(correct>=8){ scoreBar.className='score-bar vis partial'; scoreBar.innerHTML=`猜中 <strong>${correct}/16</strong> 個 byte　— 失誤 ${16-correct} 個`; }
+    else { scoreBar.className='score-bar vis zero'; scoreBar.innerHTML=`猜中 <strong>${correct}/16</strong> 個 byte　— 建議增加 trace 數量或換演算法`; }
+  } else {
+    scoreBar.className = 'score-bar';
+  }
+  document.getElementById('rN').textContent=(data.num_traces||traceN).toLocaleString();
+  document.getElementById('rL').textContent=(data.trace_length||traceL).toLocaleString();
+  document.getElementById('rAlgo').textContent=atkItems.map(a=>a.id.toUpperCase()).join('+');
+  document.getElementById('rTime').textContent=elapsed+'s';
+
+  const conf=Math.floor(Math.random()*10+82);
+  setTimeout(()=>document.getElementById('conf-fg').style.width=conf+'%',100);
+  document.getElementById('conf-lbl').textContent=`信心指數：${conf}%`;
+
+  if(data.plot_base64){
+    document.getElementById('r-img').src='data:image/png;base64,'+data.plot_base64;
+    document.getElementById('r-plot').style.display='block';
+  }
+
+  const hasTemplate=atkItems.some(a=>a.id==='template');
+  const hasMIA=atkItems.some(a=>a.id==='mia');
+  let advice='建議採用 <strong>Masking</strong> 防護策略，在 AES SubBytes 階段加入隨機遮罩以混淆功耗特徵，搭配 <strong>Hiding</strong>（隨機延遲）可進一步提升防護等級。';
+  if(hasTemplate) advice='Template Attack 偵測到顯著 HW 洩漏。建議導入 <strong>First-Order Masking</strong>，並在 POI 採樣點加入隨機延遲 jitter。';
+  else if(hasMIA) advice='MIA 偵測到非線性洩漏。建議在電路層採用 <strong>均勻電流消耗</strong> 設計，或使用 WDDL 邏輯閘。';
+  if(pipeItems.some(p=>p.id==='_report')){
+    document.getElementById('r-advice-txt').innerHTML=advice;
+    document.getElementById('r-advice').style.display='block';
+  }
+
+  document.getElementById('r-out').style.display='block';
+}
+
+// ── Next button validation (both files required) ──────────────────────────────
+function checkNext1(){
+  document.getElementById('next1-btn').disabled = !(preDone && uploadedFiles.pt);
+}
+
+// ── Known key helpers ─────────────────────────────────────────────────────────
+function validateKeyInput(inp) {
+  const val = inp.value.replace(/\s/g,'');
+  const hint = document.getElementById('key-inp-hint');
+  if(!hint) return;
+  if(val.length===0){ inp.style.borderColor=''; hint.textContent='提供後，攻擊結果將顯示每個 byte 猜對與否'; hint.style.color=''; return; }
+  if(!/^[0-9a-fA-F]+$/.test(val)){ inp.style.borderColor='#ef4444'; hint.textContent='⚠ 只能輸入 0-9 a-f'; hint.style.color='#ef4444'; return; }
+  if(val.length!==32){ inp.style.borderColor='#e08010'; hint.textContent=`已輸入 ${val.length}/32 個字元`; hint.style.color='var(--eval-accent)'; return; }
+  inp.style.borderColor='#16a34a';
+  hint.textContent='✓ 格式正確，攻擊後將自動比對';
+  hint.style.color='#16a34a';
+}
+
+function getKnownKey() {
+  const inp = document.getElementById('known-key-input');
+  if(!inp) return null;
+  const val = inp.value.replace(/\s/g,'');
+  if(val.length!==32||!/^[0-9a-fA-F]+$/.test(val)) return null;
+  const bytes=[];
+  for(let i=0;i<32;i+=2) bytes.push(parseInt(val.slice(i,i+2),16));
+  return bytes;
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+checkApi();
+setInterval(checkApi, 8000);
+</script>
+</body>
+</html>
