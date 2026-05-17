@@ -263,7 +263,7 @@ def load_npy_from_upload(uploaded_file):
 
 ---
 
-## 八、未來新增演算法（陳昱廷）
+## 八、未來新增演算法
 
 新增 DPA 攻擊為例，只需：
 
